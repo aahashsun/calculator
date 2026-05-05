@@ -128,25 +128,129 @@ type KaboomPhase = null | "heat" | "explode" | "dialog";
 const HEAT_MS = 1850;
 const EXPLODE_MS = 2350;
 
+const HISTORY_KEY = "calculator-history-v1";
+const HISTORY_CAP = 50;
+
+export type HistoryEntry = {
+  id: string;
+  at: number;
+  expression: string;
+  /** Present when chaining from last result rewrote the input. */
+  evaluatedAs?: string;
+  mode: SolverMode;
+  result: string;
+  error: string | null;
+};
+
+function loadHistory(): HistoryEntry[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as HistoryEntry[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (e) =>
+          e &&
+          typeof e.id === "string" &&
+          typeof e.expression === "string",
+      )
+      .slice(0, HISTORY_CAP);
+  } catch {
+    return [];
+  }
+}
+
+function newHistoryId(): string {
+  return (
+    globalThis.crypto?.randomUUID?.() ??
+    `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
+}
+
+const ANS_TOKEN = "ANS";
+
+/**
+ * Show ANS in the field when chaining from last result: + × ÷ ^ or -7-style minus.
+ */
+function applyAnsAutoPrefix(raw: string, lastAns: string): string {
+  if (!lastAns) return raw;
+  const leading = raw.match(/^\s*/)?.[0] ?? "";
+  const body = raw.slice(leading.length);
+  if (/^ANS\b/i.test(body)) return raw;
+
+  if (/^(?:\+|\*|\/|\^)/.test(body)) {
+    return `${leading}${ANS_TOKEN}${body}`;
+  }
+
+  /* -7, -0.5, -.25 at line start → ANS-… */
+  if (/^-(?:\d+\.?\d*|\.\d+)/.test(body)) {
+    return `${leading}${ANS_TOKEN}${body}`;
+  }
+
+  return raw;
+}
+
+/** Replace word ANS for mathjs; wrap value in parentheses for safe parsing */
+function substituteAns(
+  raw: string,
+  lastAns: string,
+): { effective: string; error: string | null } {
+  if (!/\bANS\b/i.test(raw)) {
+    return { effective: raw, error: null };
+  }
+  if (!lastAns) {
+    return {
+      effective: raw,
+      error: "ANS is only available after you have computed a result.",
+    };
+  }
+  const effective = raw.replace(/\bANS\b/gi, `(${lastAns})`);
+  return { effective: effective.trim(), error: null };
+}
+
 export default function App() {
   const [mode, setMode] = useState<SolverMode | null>(null);
   const [expr, setExpr] = useState("");
   const [result, setResult] = useState("");
   const [steps, setSteps] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory());
+  /** Stored from the last successful computation; drives ANS substitution */
+  const [lastAnswer, setLastAnswer] = useState("");
   const [kaboomPhase, setKaboomPhase] = useState<KaboomPhase>(null);
   const [burstBox, setBurstBox] = useState<DOMRect | null>(null);
   const [kaboomSession, setKaboomSession] = useState(0);
   const appRef = useRef<HTMLDivElement>(null);
   const divideZeroOkRef = useRef<HTMLButtonElement>(null);
+  const exprInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+    } catch {
+      /* ignore quota */
+    }
+  }, [history]);
 
   const closeDivideZeroFlow = useCallback(() => {
     setKaboomPhase(null);
     setBurstBox(null);
+    setExpr("");
     setResult("");
     setSteps([]);
     setError(null);
+    queueMicrotask(() => exprInputRef.current?.focus());
   }, []);
+
+  const ansExpandedPreview = useMemo(() => {
+    if (!/\bANS\b/i.test(expr) || !lastAnswer) return null;
+    const sub = substituteAns(expr, lastAnswer);
+    if (sub.error) return null;
+    const eff = sub.effective.trim();
+    if (!eff || eff === expr.trim()) return null;
+    return eff;
+  }, [expr, lastAnswer]);
 
   useEffect(() => {
     if (kaboomPhase !== "heat") return;
@@ -183,7 +287,23 @@ export default function App() {
 
   const runSolve = useCallback(() => {
     if (mode === null) return;
-    const out = solveExpression(expr, mode);
+    const trimmedDisplay = expr.trim();
+    if (trimmedDisplay === "") {
+      setError("Enter an expression.");
+      setResult("");
+      setSteps([]);
+      return;
+    }
+
+    const sub = substituteAns(expr, lastAnswer);
+    if (sub.error) {
+      setError(sub.error);
+      setResult("");
+      setSteps([]);
+      return;
+    }
+
+    const out = solveExpression(sub.effective, mode);
     if (out.divideByZero) {
       setResult("");
       setSteps([]);
@@ -200,15 +320,51 @@ export default function App() {
       }
       return;
     }
+
     setResult(out.result);
     setSteps(out.steps);
     setError(out.error);
-  }, [expr, mode]);
+
+    const succeeded = !out.error && out.result !== "";
+    if (succeeded) {
+      setLastAnswer(out.result);
+      setExpr("");
+      queueMicrotask(() => exprInputRef.current?.focus());
+    }
+
+    const entryEval =
+      /\bANS\b/i.test(trimmedDisplay) ? sub.effective : undefined;
+    const entry: HistoryEntry = {
+      id: newHistoryId(),
+      at: Date.now(),
+      expression: trimmedDisplay,
+      evaluatedAs: entryEval,
+      mode,
+      result: out.result,
+      error: out.error,
+    };
+    setHistory((prev) =>
+      [entry, ...prev].slice(0, HISTORY_CAP),
+    );
+  }, [expr, mode, lastAnswer]);
+
+  const appendAnsToken = useCallback(() => {
+    setExpr((prev) => prev + ANS_TOKEN);
+    queueMicrotask(() => exprInputRef.current?.focus());
+  }, []);
+
+  const handleExprChange = useCallback(
+    (value: string) => {
+      setExpr(applyAnsAutoPrefix(value, lastAnswer));
+    },
+    [lastAnswer],
+  );
 
   const insert = (key: string) => {
     if (key === "C") setExpr("");
-    else if (key === "⌫") setExpr((s) => s.slice(0, -1));
-    else setExpr((s) => s + key);
+    else if (key === "⌫")
+      setExpr((s) => applyAnsAutoPrefix(s.slice(0, -1), lastAnswer));
+    else setExpr((s) => applyAnsAutoPrefix(s + key, lastAnswer));
   };
 
   if (mode === null) {
@@ -274,6 +430,7 @@ export default function App() {
             setResult("");
             setSteps([]);
             setError(null);
+            setLastAnswer("");
             closeDivideZeroFlow();
           }}
         >
@@ -287,21 +444,58 @@ export default function App() {
             Expression
           </label>
           <input
+            ref={exprInputRef}
             id="expr-input"
             className="expr-input"
             value={expr}
-            onChange={(e) => setExpr(e.target.value)}
+            onChange={(e) => handleExprChange(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") runSolve();
             }}
-            placeholder="e.g. (2+3)*4, sqrt(16), sin(pi/2)"
+            placeholder="e.g. 10+5 — after a result, type +3 or −7 or insert ANS"
             spellCheck={false}
             autoComplete="off"
             autoCorrect="off"
           />
-          <div className="actions">
+          <p className="chain-hint-help">
+            After a successful <strong>Compute</strong>, the expression line is
+            cleared. While you have a last answer, typing{" "}
+            <code className="chain-code">+</code>,{" "}
+            <code className="chain-code">*</code>,{" "}
+            <code className="chain-code">/</code>,{" "}
+            <code className="chain-code">^</code>, or starting a numeric
+            negative like <code className="chain-code">-7</code> inserts{" "}
+            <strong>{ANS_TOKEN}</strong> automatically (shown as{" "}
+            <code className="chain-code">{ANS_TOKEN}-7</code>,{" "}
+            <code className="chain-code">
+              {ANS_TOKEN}+ …
+            </code>
+            , etc.).
+          </p>
+          {ansExpandedPreview ? (
+            <p className="chain-hint" aria-live="polite">
+              Evaluates as:{" "}
+              <code className="chain-hint-code">{ansExpandedPreview}</code>
+            </p>
+          ) : null}
+          {lastAnswer ? (
+            <p className="last-answer-line" aria-live="polite">
+              Last answer:{" "}
+              <code className="last-answer-val">{lastAnswer}</code>
+            </p>
+          ) : null}
+          <div className="actions actions-row">
             <button type="button" className="primary" onClick={runSolve}>
               Compute
+            </button>
+            <button
+              type="button"
+              className="ans-btn"
+              disabled={lastAnswer === ""}
+              title="Insert ANS (uses the last answer when you compute)"
+              onClick={appendAnsToken}
+            >
+              Ans
             </button>
           </div>
           {error !== null ? (
@@ -362,6 +556,60 @@ export default function App() {
             </ol>
           </section>
         )}
+
+        <section className="panel history-panel" aria-label="Calculation history">
+          <div className="history-header">
+            <h2 className="history-heading">History</h2>
+            {history.length > 0 ? (
+              <button
+                type="button"
+                className="history-clear"
+                onClick={() => setHistory([])}
+              >
+                Clear
+              </button>
+            ) : null}
+          </div>
+          {history.length === 0 ? (
+            <p className="history-empty">No calculations recorded yet.</p>
+          ) : (
+            <ul className="history-list">
+              {history.map((h) => (
+                <li key={h.id} className="history-item">
+                  <div className="history-row">
+                    <code className="history-expr">{h.expression}</code>
+                    <span className="history-mode-badge" title="Solve mode">
+                      {h.mode === "steps" ? "Steps" : "Quick"}
+                    </span>
+                  </div>
+                  {h.evaluatedAs !== undefined &&
+                  h.evaluatedAs !== h.expression ? (
+                    <p className="history-eval">
+                      Evaluated as:{" "}
+                      <code>{h.evaluatedAs}</code>
+                    </p>
+                  ) : null}
+                  {h.error ? (
+                    <p className="history-out history-out--error">{h.error}</p>
+                  ) : (
+                    <p className="history-out history-out--ok">
+                      = <strong>{h.result}</strong>
+                    </p>
+                  )}
+                  <time
+                    className="history-time"
+                    dateTime={new Date(h.at).toISOString()}
+                  >
+                    {new Date(h.at).toLocaleString(undefined, {
+                      dateStyle: "short",
+                      timeStyle: "short",
+                    })}
+                  </time>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </main>
     </div>
   );

@@ -583,8 +583,108 @@
   box-shadow: 0 0 0 2px rgb(61 143 122 / 0.25);
 }
 
+.chain-hint-help {
+  margin: 0.65rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: #8fa3b5;
+}
+
+.chain-hint-help strong {
+  color: #aabdcc;
+  font-weight: 600;
+}
+
+.chain-option {
+  margin-top: 0.65rem;
+}
+
+.chain-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: #8fa3b5;
+  cursor: pointer;
+}
+
+.chain-checkbox {
+  margin-top: 0.2rem;
+  flex-shrink: 0;
+  accent-color: #3d8f7a;
+}
+
+.chain-code {
+  font-family: "Consolas", "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.78rem;
+  padding: 0 0.2rem;
+  background: #0d1117;
+  border-radius: 4px;
+  color: #c5d6e6;
+}
+
+.chain-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  color: #7dd3c0;
+}
+
+.chain-hint-code {
+  font-family: "Consolas", "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.82rem;
+  color: #a8dccf;
+}
+
+.last-answer-line {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  color: #6b7d8f;
+}
+
+.last-answer-val {
+  font-family: "Consolas", "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.84rem;
+  color: #aabdcc;
+}
+
 .actions {
   margin-top: 0.75rem;
+}
+
+.actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.actions-row .primary {
+  flex: 1;
+  min-width: 7rem;
+}
+
+.ans-btn {
+  cursor: pointer;
+  border: 1px solid #2a3844;
+  border-radius: 8px;
+  padding: 0.55rem 0.85rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+  background: #182028;
+  color: #b8c9d9;
+  font-family: "Consolas", "JetBrains Mono", ui-monospace, monospace;
+}
+
+.ans-btn:hover:not(:disabled) {
+  background: #1e2c38;
+  border-color: #3d8f7a;
+  color: #e8eef4;
+}
+
+.ans-btn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
 }
 
 .primary {
@@ -702,4 +802,123 @@
 
 .steps-list li::marker {
   color: #3d8f7a;
+}
+
+.history-panel {
+  border-color: #243038;
+}
+
+.history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.55rem;
+}
+
+.history-heading {
+  margin: 0;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6b7d8f;
+  font-weight: 600;
+}
+
+.history-clear {
+  cursor: pointer;
+  border: none;
+  border-radius: 6px;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.8rem;
+  background: transparent;
+  color: #b8c9d9;
+  text-decoration: underline;
+}
+
+.history-clear:hover {
+  color: #e8eef4;
+}
+
+.history-empty {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #6b7d8f;
+  line-height: 1.5;
+}
+
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.history-item {
+  padding: 0.55rem 0;
+  border-top: 1px solid #1e2a36;
+}
+
+.history-item:first-of-type {
+  border-top: none;
+}
+
+.history-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.history-eval {
+  margin: 0.2rem 0 0.15rem;
+  font-size: 0.75rem;
+  color: #6b8f9a;
+  line-height: 1.4;
+}
+
+.history-eval code {
+  font-family: "Consolas", "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.74rem;
+  color: #90b8c4;
+}
+
+.history-mode-badge {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.12rem 0.4rem;
+  border-radius: 4px;
+  background: #152028;
+  color: #8fa3b5;
+}
+
+.history-out {
+  margin: 0 0 0.2rem;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.history-out--ok {
+  color: #a8dccf;
+  font-family: "Consolas", "JetBrains Mono", ui-monospace, monospace;
+}
+
+.history-out--ok strong {
+  color: #7dd3c0;
+  font-weight: 600;
+}
+
+.history-out--error {
+  color: #f88;
+  font-size: 0.82rem;
+}
+
+.history-time {
+  display: block;
+  font-size: 0.72rem;
+  color: #5a6b7c;
 }
