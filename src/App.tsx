@@ -1,6 +1,73 @@
-import { useCallback, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import "./App.css";
 import { solveExpression } from "./mathSteps";
+
+const SHARD_COLS = 8;
+const SHARD_ROWS = 6;
+const SHARD_COUNT = SHARD_COLS * SHARD_ROWS;
+
+function ShardBurst({
+  box,
+  session,
+}: {
+  box: DOMRect;
+  session: number;
+}) {
+  const shards = useMemo(
+    () =>
+      Array.from({ length: SHARD_COUNT }, (_, i) => ({
+        key: `${session}-${i}`,
+        tx: (Math.random() - 0.5) * Math.max(560, box.width * 3),
+        ty: 260 + Math.random() * 520,
+        rzDeg: (Math.random() - 0.5) * 920,
+        warm: Math.random(),
+        delay: Math.random() * 0.08,
+        col: i % SHARD_COLS,
+        row: Math.floor(i / SHARD_COLS),
+      })),
+    [box, session],
+  );
+
+  return (
+    <div
+      className="shard-burst"
+      aria-hidden
+      style={{
+        top: box.top,
+        left: box.left,
+        width: box.width,
+        height: box.height,
+      }}
+    >
+      {shards.map((s) => (
+        <span
+          key={s.key}
+          className="shard-burst__piece"
+          style={
+            {
+              left: `${(s.col / SHARD_COLS) * 100}%`,
+              top: `${(s.row / SHARD_ROWS) * 100}%`,
+              width: `${100 / SHARD_COLS}%`,
+              height: `${100 / SHARD_ROWS}%`,
+              "--shard-tx": `${s.tx}px`,
+              "--shard-ty": `${s.ty}px`,
+              "--shard-rz-deg": String(s.rzDeg),
+              "--shard-warm": String(s.warm),
+              "--shard-delay": `${s.delay}s`,
+            } as CSSProperties
+          }
+        />
+      ))}
+    </div>
+  );
+}
 
 export type SolverMode = "steps" | "immediate";
 
@@ -56,16 +123,83 @@ function ModeChooser({
   );
 }
 
+type KaboomPhase = null | "heat" | "explode" | "dialog";
+
+const HEAT_MS = 1850;
+const EXPLODE_MS = 2350;
+
 export default function App() {
   const [mode, setMode] = useState<SolverMode | null>(null);
   const [expr, setExpr] = useState("");
   const [result, setResult] = useState("");
   const [steps, setSteps] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [kaboomPhase, setKaboomPhase] = useState<KaboomPhase>(null);
+  const [burstBox, setBurstBox] = useState<DOMRect | null>(null);
+  const [kaboomSession, setKaboomSession] = useState(0);
+  const appRef = useRef<HTMLDivElement>(null);
+  const divideZeroOkRef = useRef<HTMLButtonElement>(null);
+
+  const closeDivideZeroFlow = useCallback(() => {
+    setKaboomPhase(null);
+    setBurstBox(null);
+    setResult("");
+    setSteps([]);
+    setError(null);
+  }, []);
+
+  useEffect(() => {
+    if (kaboomPhase !== "heat") return;
+    const reduced = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    if (reduced) {
+      setKaboomPhase("dialog");
+      return;
+    }
+    const id = window.setTimeout(() => {
+      const box = appRef.current?.getBoundingClientRect() ?? null;
+      setBurstBox(box);
+      setKaboomSession((s) => s + 1);
+      setKaboomPhase("explode");
+    }, HEAT_MS);
+    return () => window.clearTimeout(id);
+  }, [kaboomPhase]);
+
+  useEffect(() => {
+    if (kaboomPhase !== "explode") return;
+    const reduced = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    const ms = reduced ? 0 : EXPLODE_MS;
+    const id = window.setTimeout(() => setKaboomPhase("dialog"), ms);
+    return () => window.clearTimeout(id);
+  }, [kaboomPhase]);
+
+  useEffect(() => {
+    if (kaboomPhase !== "dialog") return;
+    divideZeroOkRef.current?.focus();
+  }, [kaboomPhase]);
 
   const runSolve = useCallback(() => {
     if (mode === null) return;
     const out = solveExpression(expr, mode);
+    if (out.divideByZero) {
+      setResult("");
+      setSteps([]);
+      setError(null);
+      const reduced = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
+      if (reduced) {
+        setBurstBox(null);
+        setKaboomPhase("dialog");
+      } else {
+        setBurstBox(null);
+        requestAnimationFrame(() => setKaboomPhase("heat"));
+      }
+      return;
+    }
     setResult(out.result);
     setSteps(out.steps);
     setError(out.error);
@@ -82,7 +216,51 @@ export default function App() {
   }
 
   return (
-    <div className="app">
+    <div
+      ref={appRef}
+      className={`app${[
+        kaboomPhase === "heat" ? " app--heat" : "",
+        kaboomPhase === "explode" || kaboomPhase === "dialog"
+          ? " app--kaboom"
+          : "",
+      ].join("")}`}
+    >
+      {kaboomPhase === "explode" && burstBox ? (
+        <ShardBurst box={burstBox} session={kaboomSession} />
+      ) : null}
+
+      {kaboomPhase === "dialog" ? (
+        <div
+          className="divide-zero-layer"
+          role="presentation"
+        >
+          <div
+            className="divide-zero-dialog"
+            role="alertdialog"
+            aria-labelledby="divide-zero-title"
+            aria-describedby="divide-zero-desc"
+          >
+            <div className="divide-zero-flash" aria-hidden />
+            <h2 id="divide-zero-title" className="divide-zero-heading">
+              That&apos;s division by zero
+            </h2>
+            <p id="divide-zero-desc" className="divide-zero-text">
+              It is not allowed to divide anything by zero. Dividing by zero
+              is undefined, so this calculator refuses to pretend otherwise.
+            </p>
+            <button
+              ref={divideZeroOkRef}
+              id="divide-zero-ok-btn"
+              type="button"
+              className="divide-zero-ok"
+              onClick={closeDivideZeroFlow}
+            >
+              Ok, I get it.
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <header className="top-bar">
         <div className="brand">Math calculator</div>
         <div className="mode-pill" aria-live="polite">
@@ -96,6 +274,7 @@ export default function App() {
             setResult("");
             setSteps([]);
             setError(null);
+            closeDivideZeroFlow();
           }}
         >
           Change mode

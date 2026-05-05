@@ -10,6 +10,14 @@ import {
   type SymbolNode,
 } from "mathjs";
 
+/** Thrown when evaluation requires dividing by zero (or modulo by zero). */
+export class DivisionByZeroError extends Error {
+  override readonly name = "DivisionByZeroError";
+  constructor() {
+    super("Division by zero");
+  }
+}
+
 const BUILT_INS: Record<string, number> = {
   pi: Math.PI,
   PI: Math.PI,
@@ -65,10 +73,16 @@ function applyBinary(
     case "multiply":
       return left * right;
     case "divide":
+      if (right === 0) {
+        throw new DivisionByZeroError();
+      }
       return left / right;
     case "pow":
       return left ** right;
     case "mod":
+      if (right === 0) {
+        throw new DivisionByZeroError();
+      }
       return ((left % right) + right) % right;
     default:
       throw new Error(`Unsupported operator: ${fn}`);
@@ -236,6 +250,8 @@ export type SolveResult = {
   result: string;
   steps: string[];
   error: string | null;
+  /** True when denominator became zero — UI may show explosion + notice. */
+  divideByZero: boolean;
 };
 
 export function solveExpression(
@@ -244,27 +260,51 @@ export function solveExpression(
 ): SolveResult {
   const trimmed = expr.trim();
   if (!trimmed) {
-    return { result: "", steps: [], error: "Enter an expression." };
+    return {
+      result: "",
+      steps: [],
+      error: "Enter an expression.",
+      divideByZero: false,
+    };
   }
 
   try {
     if (mode === "immediate") {
       const raw = evaluate(trimmed);
       if (typeof raw === "boolean") {
-        return { result: raw ? "true" : "false", steps: [], error: null };
+        return {
+          result: raw ? "true" : "false",
+          steps: [],
+          error: null,
+          divideByZero: false,
+        };
       }
       if (typeof raw === "number") {
+        if (!Number.isFinite(raw)) {
+          return {
+            result: "",
+            steps: [],
+            error: null,
+            divideByZero: true,
+          };
+        }
         return {
           result: formatScalar(raw),
           steps: [],
-          error: Number.isNaN(raw) ? "Result is not a real number." : null,
+          error: null,
+          divideByZero: false,
         };
       }
       try {
         const s = format(raw, { precision: 14 });
-        return { result: s, steps: [], error: null };
+        return { result: s, steps: [], error: null, divideByZero: false };
       } catch {
-        return { result: String(raw), steps: [], error: null };
+        return {
+          result: String(raw),
+          steps: [],
+          error: null,
+          divideByZero: false,
+        };
       }
     }
 
@@ -274,9 +314,23 @@ export function solveExpression(
       result: formatScalar(value),
       steps,
       error: null,
+      divideByZero: false,
     };
   } catch (e) {
+    if (e instanceof DivisionByZeroError) {
+      return {
+        result: "",
+        steps: [],
+        error: null,
+        divideByZero: true,
+      };
+    }
     const message = e instanceof Error ? e.message : String(e);
-    return { result: "", steps: [], error: message };
+    return {
+      result: "",
+      steps: [],
+      error: message,
+      divideByZero: false,
+    };
   }
 }
